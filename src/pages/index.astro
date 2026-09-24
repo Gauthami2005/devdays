@@ -8,7 +8,8 @@ import { getAllGames } from '../lib/games';
 
 export const prerender = true;
 
-const games = await getAllGames(getDatabase());
+const defaultSort = 'title-asc';
+const games = await getAllGames(getDatabase(), defaultSort);
 ---
 
 <Layout title="Tailspin Toys - Crowdfunding your new favorite game!">
@@ -19,7 +20,25 @@ const games = await getAllGames(getDatabase());
     />
 
     <div>
-      <h2 class="text-2xl font-medium mb-6 text-slate-100">Featured Games</h2>
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <h2 class="text-2xl font-medium text-slate-100">Featured Games</h2>
+
+        <div class="flex flex-col gap-2 sm:min-w-[220px]">
+          <label for="game-sort" class="text-sm font-medium text-slate-200">Sort by</label>
+          <select
+            id="game-sort"
+            name="game-sort"
+            aria-label="Sort game list"
+            data-testid="game-sort"
+            value={defaultSort}
+            class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            <option value="title-asc">Title: A–Z</option>
+            <option value="title-desc">Title: Z–A</option>
+            <option value="rating-desc">Star rating: highest first</option>
+          </select>
+        </div>
+      </div>
 
       {games.length === 0 ? (
         <EmptyState text="No games available at the moment." />
@@ -31,3 +50,52 @@ const games = await getAllGames(getDatabase());
     </div>
   </div>
 </Layout>
+
+<script>
+  const sortSelect = document.getElementById('game-sort');
+  const gamesGrid = document.querySelector('[data-testid="games-grid"]');
+
+  if (sortSelect instanceof HTMLSelectElement && gamesGrid instanceof HTMLElement) {
+    const parseTitle = (element: Element): string => (element.getAttribute('data-game-title') ?? '').trim();
+    const parseRating = (element: Element): number => {
+      const value = element.getAttribute('data-game-rating');
+      return value !== null && value !== '' ? Number(value) : Number.NEGATIVE_INFINITY;
+    };
+
+    const applySort = () => {
+      const cards = [...gamesGrid.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.getAttribute('data-testid') === 'game-card');
+
+      cards.sort((left, right) => {
+        switch (sortSelect.value) {
+          case 'title-desc':
+            return parseTitle(right).localeCompare(parseTitle(left));
+          case 'rating-desc': {
+            const hasRatingLeft = left.getAttribute('data-game-has-rating') === 'true';
+            const hasRatingRight = right.getAttribute('data-game-has-rating') === 'true';
+
+            if (hasRatingLeft !== hasRatingRight) {
+              return hasRatingLeft ? -1 : 1;
+            }
+
+            if (hasRatingLeft && hasRatingRight) {
+              const ratingDifference = parseRating(right) - parseRating(left);
+              if (ratingDifference !== 0) {
+                return ratingDifference;
+              }
+            }
+
+            return parseTitle(left).localeCompare(parseTitle(right));
+          }
+          case 'title-asc':
+          default:
+            return parseTitle(left).localeCompare(parseTitle(right));
+        }
+      });
+
+      cards.forEach((card) => gamesGrid.appendChild(card));
+    };
+
+    sortSelect.addEventListener('change', applySort);
+    applySort();
+  }
+</script>
