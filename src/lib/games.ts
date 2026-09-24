@@ -3,6 +3,8 @@ import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game } from '../types/game';
 
+export type GameSortOption = 'title-asc' | 'title-desc' | 'rating-desc';
+
 const gameSelection = {
     id: games.id,
     title: games.title,
@@ -24,6 +26,54 @@ type GameSelectionRow = {
     publisherId: number | null;
     publisherName: string | null;
 };
+
+function compareText(a: string, b: string): number {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+}
+
+function compareGamesByTitle(a: Game, b: Game): number {
+    return compareText(a.title, b.title);
+}
+
+/**
+ * Sorts a list of games into a deterministic order.
+ * Rated games appear before unrated games when sorting by rating, and the
+ * fallback ordering is alphabetical by title so the output remains stable.
+ *
+ * @param gamesList - The games to sort.
+ * @param sortBy - The requested ordering mode.
+ * @returns A new array containing the games in the selected order.
+ */
+export function sortGames(gamesList: Game[], sortBy: GameSortOption = 'title-asc'): Game[] {
+    return [...gamesList].sort((a, b) => {
+        switch (sortBy) {
+            case 'title-desc':
+                return compareGamesByTitle(b, a);
+            case 'rating-desc': {
+                const hasRatingA = a.starRating !== null;
+                const hasRatingB = b.starRating !== null;
+
+                if (hasRatingA !== hasRatingB) {
+                    return hasRatingA ? -1 : 1;
+                }
+
+                if (hasRatingA && hasRatingB) {
+                    const ratingDelta = Number(b.starRating) - Number(a.starRating);
+                    if (ratingDelta !== 0) {
+                        return ratingDelta;
+                    }
+                }
+
+                return compareGamesByTitle(a, b);
+            }
+            case 'title-asc':
+            default:
+                return compareGamesByTitle(a, b);
+        }
+    });
+}
 
 function mapGame(row: GameSelectionRow): Game {
     return {
@@ -50,16 +100,17 @@ function baseGamesQuery(db: Database) {
         .leftJoin(publishers, eq(games.publisherId, publishers.id));
 }
 
-/** All games ordered by title. */
-export async function getAllGames(db: Database): Promise<Game[]> {
+/** All games ordered by the selected mode. */
+export async function getAllGames(db: Database, sortBy: GameSortOption = 'title-asc'): Promise<Game[]> {
     const rows = await baseGamesQuery(db).orderBy(asc(games.title));
-    return rows.map(mapGame);
+    return sortGames(rows.map(mapGame), sortBy);
 }
 
-/** All game ids ordered by title. */
-export async function getAllGameIds(db: Database): Promise<number[]> {
-    const rows = await db.select({ id: games.id }).from(games).orderBy(asc(games.title));
-    return rows.map((row) => row.id);
+/** All game ids ordered by the selected mode. */
+export async function getAllGameIds(db: Database, sortBy: GameSortOption = 'title-asc'): Promise<number[]> {
+    const rows = await baseGamesQuery(db).orderBy(asc(games.title));
+    const allGames = rows.map(mapGame);
+    return sortGames(allGames, sortBy).map((game) => game.id);
 }
 
 /** A single game by id, or null when it does not exist. */
